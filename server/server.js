@@ -22,7 +22,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketio(server, {
   cors: {
-    origin: ['http://localhost:5173', 'http://localhost:5050'],
+    origin: ['http://localhost:5173', 'http://localhost:5050', 'https://frontendtaskmanagement-rose.vercel.app'],
     methods: ['GET', 'POST'],
     credentials: true,
   }
