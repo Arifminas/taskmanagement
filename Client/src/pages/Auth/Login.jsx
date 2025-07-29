@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -7,297 +7,375 @@ import {
   Typography,
   Box,
   Alert,
-  CircularProgress,
-  useTheme,
-  useMediaQuery,
-  Divider,
+  Avatar,
   IconButton,
   InputAdornment
 } from '@mui/material';
 import {
-  LockOutlined as LockIcon,
+  LockOutlined,
   Visibility,
   VisibilityOff,
-  Email as EmailIcon,
-  Person as PersonIcon,
-  ArrowForward as ArrowIcon
+  EmailOutlined,
+  PersonAddOutlined,
+  LoginOutlined,
+  CheckCircleOutlined,
+  ErrorOutlined
 } from '@mui/icons-material';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
-  const { login, loading } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
+  
   const [form, setForm] = useState({ email: '', password: '' });
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState({});
+  const [touched, setTouched] = useState({});
   const [showPassword, setShowPassword] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState({});
+  const [generalError, setGeneralError] = useState('');
 
-  const handleChange = (e) => {
+  // Validation
+  const validate = (field, value) => {
+    switch (field) {
+      case 'email':
+        if (!value?.trim()) return 'Email is required';
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Invalid email format';
+        return '';
+      case 'password':
+        if (!value) return 'Password is required';
+        if (value.length < 6) return 'Minimum 6 characters required';
+        return '';
+      default:
+        return '';
+    }
+  };
+
+  const getValidationIcon = (field) => {
+    if (!touched[field] || !form[field]) return null;
+    const error = validate(field, form[field]);
+    return error ? 
+      <ErrorOutlined sx={{ color: '#f44336', fontSize: 20 }} /> :
+      <CheckCircleOutlined sx={{ color: '#dc267f', fontSize: 20 }} />;
+  };
+
+  const isFormValid = () => {
+    return form.email && 
+           form.password && 
+           !validate('email', form.email) && 
+           !validate('password', form.password);
+  };
+
+  // Event handlers
+  const handleChange = useCallback((e) => {
     const { name, value } = e.target;
-    setForm({ ...form, [name]: value });
-    if (fieldErrors[name]) setFieldErrors({ ...fieldErrors, [name]: '' });
-    if (error) setError('');
-  };
+    setForm(prev => ({ ...prev, [name]: value }));
+    
+    if (touched[name]) {
+      const error = validate(name, value);
+      setErrors(prev => ({ ...prev, [name]: error }));
+    }
+    
+    if (generalError) setGeneralError('');
+  }, [touched, generalError]);
 
-  const validateForm = () => {
-    const errors = {};
-    if (!form.email) errors.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(form.email)) errors.email = 'Email is invalid';
-    if (!form.password) errors.password = 'Password is required';
-    else if (form.password.length < 6) errors.password = 'Password must be at least 6 characters';
-    return errors;
-  };
+  const handleBlur = useCallback((e) => {
+    const { name, value } = e.target;
+    setTouched(prev => ({ ...prev, [name]: true }));
+    const error = validate(name, value);
+    setErrors(prev => ({ ...prev, [name]: error }));
+  }, []);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
-    const errors = validateForm();
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
+    
+    const newErrors = {};
+    ['email', 'password'].forEach(field => {
+      const error = validate(field, form[field]);
+      if (error) newErrors[field] = error;
+    });
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      setTouched({ email: true, password: true });
+      setGeneralError('Please fix the errors below');
       return;
     }
 
     try {
-      await login(form.email, form.password);
-      toast.success('Welcome back! Login successful!');
+      await login(form.email.trim(), form.password);
+      toast.success('Welcome back!');
     } catch (err) {
-      const errorMessage = err.response?.data?.message || 'Login failed. Please try again.';
-      setError(errorMessage);
-      toast.error(errorMessage);
+      const errorMsg = err.response?.status === 401 
+        ? 'Invalid credentials' 
+        : err.response?.data?.message || 'Login failed';
+      setGeneralError(errorMsg);
+      toast.error(errorMsg);
     }
-  };
-
-  const togglePasswordVisibility = () => {
-    setShowPassword(!showPassword);
-  };
-
-  const containerVariants = {
-    hidden: { opacity: 0, y: 50 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.6, ease: 'easeOut', staggerChildren: 0.1 }
-    }
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.4 } }
-  };
-
-  const logoVariants = {
-    hidden: { scale: 0 },
-    visible: {
-      scale: 1,
-      transition: { type: 'spring', stiffness: 200, damping: 20, delay: 0.2 }
-    }
-  };
+  }, [form, login]);
 
   return (
-    <Container
-      maxWidth="sm"
+    <Container 
+      maxWidth="sm" 
       sx={{
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        py: 3,
-        px: { xs: 2, sm: 3 }
+        background: 'linear-gradient(135deg, #1a2752 0%, #dc267f 100%)',
+        p: 2
       }}
     >
-      <motion.div
-        variants={!prefersReducedMotion ? containerVariants : undefined}
-        initial="hidden"
-        animate="visible"
-        style={{ width: '100%' }}
+      <Paper 
+        elevation={8}
+        sx={{
+          p: 4,
+          borderRadius: 2,
+          background: 'rgba(255, 255, 255, 0.98)',
+          width: '100%',
+          maxWidth: 400
+        }}
       >
-        <Paper
-          elevation={isMobile ? 2 : 8}
-          sx={{
-            p: { xs: 3, sm: 4, md: 5 },
-            borderRadius: { xs: 2, sm: 3 },
-            background: '#ffffff',
-            border: '1px solid rgba(220, 38, 127, 0.1)',
-            boxShadow: '0 8px 32px rgba(26, 39, 82, 0.1)'
-          }}
-        >
-          <motion.div variants={!prefersReducedMotion ? logoVariants : undefined}>
-            <Box sx={{ textAlign: 'center', mb: 4 }}>
-              <Box
-                sx={{
-                  width: 80,
-                  height: 80,
-                  mx: 'auto',
-                  borderRadius: '50%',
-                  background: '#1a2752',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                <img
-                  src="/src/img/logo.png"
-                  alt="Logo"
-                  style={{
-                    width: '60%',
-                    height: '60%',
-                    objectFit: 'contain',
-                    filter: 'brightness(0) invert(1)',
-                  }}
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    e.target.nextSibling.style.display = 'block';
-                  }}
-                />
-                <LockIcon sx={{ color: 'white', display: 'none' }} />
-              </Box>
-              <Typography variant="h5" sx={{ fontWeight: 600, mt: 2 }}>
-                Welcome Back
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Please sign in to continue
-              </Typography>
-            </Box>
-          </motion.div>
+        {/* Header */}
+        <Box textAlign="center" mb={3}>
+          <Avatar 
+            sx={{
+              background: 'linear-gradient(45deg, #1a2752, #dc267f)',
+              width: 60,
+              height: 60,
+              mx: 'auto',
+              mb: 2
+            }}
+          >
+            <LockOutlined fontSize="large" />
+          </Avatar>
+          <Typography variant="h5" fontWeight={600} color="#1a2752" mb={0.5}>
+            Welcome Back
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Sign in to continue securely
+          </Typography>
+        </Box>
 
-          <AnimatePresence>
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
-                  {error}
-                </Alert>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        {/* Error Alert */}
+        {generalError && (
+          <Alert severity="error" sx={{ mb: 2, borderRadius: 1 }}>
+            {generalError}
+          </Alert>
+        )}
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-            <motion.div variants={!prefersReducedMotion ? itemVariants : undefined}>
-              <TextField
-                fullWidth
-                required
-                label="Email Address"
-                name="email"
-                type="email"
-                value={form.email}
-                onChange={handleChange}
-                error={!!fieldErrors.email}
-                helperText={fieldErrors.email}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <EmailIcon />
-                    </InputAdornment>
-                  ),
-                  style: { color: '#000' }
-                }}
-                sx={{
-                  mt: 2,
-                  '& input': { color: '#000' },
-                  '& .MuiInputLabel-root.Mui-focused': {
-                    color: '#dc267f',
+        {/* Form */}
+        <Box component="form" onSubmit={handleSubmit}>
+          <TextField
+            fullWidth
+            name="email"
+            type="email"
+            label="Email Address"
+            value={form.email}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            error={Boolean(errors.email)}
+            helperText={errors.email}
+            autoComplete="email"
+            sx={{ 
+              mb: 2,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 1.5,
+                backgroundColor: '#ffffff',
+                '& input': {
+                  color: '#1a2752 !important',
+                  fontSize: '16px',
+                  fontWeight: 500,
+                  WebkitTextFillColor: '#1a2752 !important',
+                  '&:-webkit-autofill': {
+                    WebkitBoxShadow: '0 0 0 1000px #ffffff inset !important',
+                    WebkitTextFillColor: '#1a2752 !important',
+                    backgroundColor: '#ffffff !important'
                   }
-                }}
-              />
-            </motion.div>
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#1a2752'
+                }
+              },
+              '& .MuiInputLabel-root': {
+                color: '#666666',
+                fontSize: '16px',
+                '&.Mui-focused': {
+                  color: '#1a2752'
+                }
+              },
+              '& .MuiFormHelperText-root': {
+                color: '#f44336',
+                fontSize: '14px'
+              }
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <EmailOutlined sx={{ color: '#666666' }} />
+                </InputAdornment>
+              ),
+              endAdornment: getValidationIcon('email') && (
+                <InputAdornment position="end">
+                  {getValidationIcon('email')}
+                </InputAdornment>
+              ),
+              style: {
+                color: '#1a2752',
+                fontSize: '16px',
+                fontWeight: 500
+              }
+            }}
+            inputProps={{
+              style: {
+                color: '#1a2752',
+                fontSize: '16px',
+                fontWeight: 500,
+                WebkitTextFillColor: '#1a2752'
+              }
+            }}
+          />
 
-            <motion.div variants={!prefersReducedMotion ? itemVariants : undefined}>
-              <TextField
-                fullWidth
-                required
-                name="password"
-                label="Password"
-                type={showPassword ? 'text' : 'password'}
-                value={form.password}
-                onChange={handleChange}
-                error={!!fieldErrors.password}
-                helperText={fieldErrors.password}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <LockIcon />
-                    </InputAdornment>
-                  ),
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton onClick={togglePasswordVisibility} edge="end" size="small">
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                  style: { color: '#000' }
-                }}
-                sx={{
-                  mt: 2,
-                  '& input': { color: '#000' },
-                  '& .MuiInputLabel-root.Mui-focused': {
-                    color: '#dc267f',
+          <TextField
+            fullWidth
+            name="password"
+            type={showPassword ? 'text' : 'password'}
+            label="Password"
+            value={form.password}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            error={Boolean(errors.password)}
+            helperText={errors.password}
+            autoComplete="current-password"
+            sx={{ 
+              mb: 3,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 1.5,
+                backgroundColor: '#ffffff',
+                '& input': {
+                  color: '#1a2752 !important',
+                  fontSize: '16px',
+                  fontWeight: 500,
+                  WebkitTextFillColor: '#1a2752 !important',
+                  '&:-webkit-autofill': {
+                    WebkitBoxShadow: '0 0 0 1000px #ffffff inset !important',
+                    WebkitTextFillColor: '#1a2752 !important',
+                    backgroundColor: '#ffffff !important'
                   }
-                }}
-              />
-            </motion.div>
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#1a2752'
+                }
+              },
+              '& .MuiInputLabel-root': {
+                color: '#666666',
+                fontSize: '16px',
+                '&.Mui-focused': {
+                  color: '#1a2752'
+                }
+              },
+              '& .MuiFormHelperText-root': {
+                color: '#f44336',
+                fontSize: '14px'
+              }
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <LockOutlined sx={{ color: '#666666' }} />
+                </InputAdornment>
+              ),
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Box display="flex" gap={0.5}>
+                    {getValidationIcon('password')}
+                    <IconButton
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                      size="small"
+                      sx={{ color: '#666666' }}
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </Box>
+                </InputAdornment>
+              ),
+              style: {
+                color: '#1a2752',
+                fontSize: '16px',
+                fontWeight: 500
+              }
+            }}
+            inputProps={{
+              style: {
+                color: '#1a2752',
+                fontSize: '16px',
+                fontWeight: 500,
+                WebkitTextFillColor: '#1a2752'
+              }
+            }}
+          />
 
-            <motion.div variants={!prefersReducedMotion ? itemVariants : undefined}>
-              <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                disabled={loading}
-                endIcon={loading ? <CircularProgress size={20} color="inherit" /> : <ArrowIcon />}
-                sx={{
-                  mt: 4,
-                  py: 1.5,
-                  borderRadius: 2,
-                  fontWeight: 600,
-                  backgroundColor: '#dc267f',
-                  color: '#fff',
-                  '&:hover': {
-                    backgroundColor: '#b91c5c'
-                  }
-                }}
-              >
-                {loading ? 'Signing In...' : 'Sign In'}
-              </Button>
-            </motion.div>
+          <Button
+            fullWidth
+            type="submit"
+            disabled={!isFormValid()}
+            endIcon={<LoginOutlined />}
+            sx={{
+              py: 1.5,
+              borderRadius: 1.5,
+              fontSize: '1rem',
+              fontWeight: 600,
+              textTransform: 'none',
+              background: isFormValid() 
+                ? 'linear-gradient(45deg, #dc267f, #1a2752)' 
+                : '#e0e0e0',
+              color: isFormValid() ? '#ffffff' : '#9e9e9e',
+              mb: 2,
+              '&:hover': {
+                background: isFormValid() 
+                  ? 'linear-gradient(45deg, #b91c5c, #1a2752)' 
+                  : '#d1d1d1ff'
+              },
+              '&:disabled': {
+                background: '#ceccccff',
+                color: '#b91c5c'
+              }
+            }}
+          >
+            Sign In
+          </Button>
 
-            <Divider sx={{ my: 3 }} />
+          <Typography variant="body2" textAlign="center" color="text.secondary" mb={1}>
+            Don't have an account?
+          </Typography>
 
-            <motion.div variants={!prefersReducedMotion ? itemVariants : undefined}>
-              <Box textAlign="center">
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  Don't have an account?
-                </Typography>
-                <Button
-                  variant="outlined"
-                  onClick={() => navigate('/register')}
-                  startIcon={<PersonIcon />}
-                  sx={{
-                    textTransform: 'none',
-                    borderColor: '#1a2752',
-                    color: '#1a2752',
-                    '&:hover': {
-                      borderColor: '#dc267f',
-                      color: '#dc267f'
-                    }
-                  }}
-                >
-                  Create Account
-                </Button>
-              </Box>
-            </motion.div>
-          </Box>
-        </Paper>
-      </motion.div>
+          <Button
+            fullWidth
+            variant="outlined"
+            onClick={() => navigate('/register')}
+            startIcon={<PersonAddOutlined />}
+            sx={{
+              borderRadius: 1.5,
+              borderColor: '#1a2752',
+              color: '#1a2752',
+              fontWeight: 500,
+              textTransform: 'none',
+              '&:hover': {
+                borderColor: '#dc267f',
+                color: '#dc267f',
+                background: 'rgba(220, 38, 127, 0.04)'
+              }
+            }}
+          >
+            Create Account
+          </Button>
+        </Box>
+
+        <Typography variant="caption" color="text.secondary" textAlign="center" display="block" mt={2}>
+          🔒 Secure & encrypted connection
+        </Typography>
+      </Paper>
     </Container>
   );
 };
