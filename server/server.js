@@ -112,7 +112,12 @@ app.use(hpp({ checkQuery: false }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // CORS config
-const allowedOrigins = ['http://localhost:5050', 'http://localhost:5173'];
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5050',
+  'https://frontendtaskmanagement-rose.vercel.app'
+];
+
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) callback(null, true);
