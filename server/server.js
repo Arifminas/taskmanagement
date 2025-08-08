@@ -17,7 +17,7 @@ const User = require('./models/User');
 
 const connectDB = require('./config/db');
 const routes = require('./routes');
-
+const departmentController = require('./controllers/departmentController');
 const app = express();
 const server = http.createServer(app);
 const io = socketio(server, {
@@ -136,6 +136,8 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
+
+app.get('/api/v1/departments/public', departmentController.getAllDepartments);
 // --- API routes ---
 app.use('/api', routes);
 

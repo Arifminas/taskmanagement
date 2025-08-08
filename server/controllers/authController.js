@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -11,11 +12,36 @@ exports.register = async (req, res) => {
   try {
     const { name, email, password, role, department } = req.body;
 
-    const departmentDoc = await Department.findOne({ name: department });
+    if (!department) {
+      return res.status(400).json({ message: 'Department is required' });
+    }
+
+    // department might be an id string, a name string, or an object { _id, name }
+    const deptValue =
+      typeof department === 'object'
+        ? (department._id || department.name || '').toString()
+        : department.toString();
+
+    let departmentDoc = null;
+
+    // If it looks like a valid ObjectId, try by id first
+    if (mongoose.Types.ObjectId.isValid(deptValue)) {
+      departmentDoc = await Department.findById(deptValue);
+    }
+
+    // Otherwise, try exact name, then case-insensitive name
+    if (!departmentDoc) {
+      const trimmed = deptValue.trim();
+      departmentDoc =
+        (await Department.findOne({ name: trimmed })) ||
+        (await Department.findOne({
+          name: { $regex: `^${trimmed}$`, $options: 'i' },
+        }));
+    }
+
     if (!departmentDoc) {
       return res.status(400).json({ message: 'Invalid department' });
     }
-
     // Check if user exists
     let user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: 'User already exists' });
@@ -200,15 +226,17 @@ await User.findByIdAndUpdate(user._id, {
 
 exports.logout = async (req, res) => {
   try {
-    // Assuming JWT stored in httpOnly cookie 'token', clear it:
+    // Clear the cookie
     res.clearCookie('token', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
     });
-   await User.findByIdAndUpdate(user._id, {
-  isOnline: false,
-});
+    if (req.user && req.user._id) {
+      await User.findByIdAndUpdate(req.user._id, {
+        isOnline: false,
+      });
+    }
 
     // Send logout notification email
     if (req.user) {

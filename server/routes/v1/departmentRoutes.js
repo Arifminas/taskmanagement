@@ -7,7 +7,11 @@ const { body } = require('express-validator');
 const validateRequest = require('../../middleware/validateRequest');
 const { permissions } = require('../../middleware/permission');
 
-
+router.use((req, _res, next) => {
+  console.log('[dept router]', req.method, req.originalUrl);
+  next();
+});
+router.get('/public', departmentController.getAllDepartments);
 // Create department - Admin only
 router.post(
   '/',
@@ -22,6 +26,7 @@ router.post(
 
 // Get all departments - Admin & Coordinator & User can access
 router.get('/', auth, departmentController.getDepartments);
+// router.get('/public', departmentController.getAllDepartments);
 
 // Assign leads - Admin only
 router.put(

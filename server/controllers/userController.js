@@ -1,4 +1,6 @@
+const { model } = require('mongoose');
 const User = require('../models/User');
+const bcrypt = require('bcryptjs');
 
 // Get all users (Admin only)
 exports.getAllUsers = async (req, res) => {
@@ -100,39 +102,58 @@ exports.deleteUser = async (req, res) => {
   }
 };
 // Update current user's profile
-const bcrypt = require('bcryptjs');
 
 
-exports.updateCurrentUser = async (req, res) => {
+// GET /api/v1/users/me
+exports.getCurrentUser = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const { currentPassword, newPassword, ...updates } = req.body;
-
-    const user = await User.findById(userId).select('+password');
-    if (!user) return res.status(404).json({ message: 'User not found' });
-
-    if (newPassword) {
-      if (!currentPassword) {
-        return res.status(400).json({ message: 'Current password is required to change password' });
-      }
-
-      const isMatch = await bcrypt.compare(currentPassword, user.password);
-      if (!isMatch) {
-        return res.status(400).json({ message: 'Current password is incorrect' });
-      }
-
-      user.password = newPassword; // will hash on save
+    console.log('getCurrentUser: req.user =', req.user);
+    const user = await User.findById(req.user._id)
+      .select('-password')
+      .populate('department', 'name'); // optional
+    console.log('getCurrentUser: fetched user =', user);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-
-    Object.assign(user, updates);
-
-    await user.save();
-
-    user.password = undefined;
     res.json({ success: true, data: user });
   } catch (err) {
-    console.error('Update current user error:', err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('❌ getCurrentUser error stack:', err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      stack: err.stack.split('\n').slice(0,3)
+    });
   }
 };
 
+// PUT /api/v1/users/me
+exports.updateCurrentUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const { currentPassword, newPassword, ...updates } = req.body;
+
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ success: false, message: 'Current password is required' });
+      }
+      const match = await bcrypt.compare(currentPassword, user.password);
+      if (!match) {
+        return res.status(400).json({ success: false, message: 'Current password is incorrect' });
+      }
+      user.password = newPassword;
+    }
+
+    Object.assign(user, updates);
+    await user.save();
+    user.password = undefined;
+
+    res.json({ success: true, data: user });
+  } catch (err) {
+    console.error('❌ updateCurrentUser error stack:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
