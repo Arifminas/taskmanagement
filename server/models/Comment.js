@@ -19,7 +19,9 @@ const CommentSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-  }
-});
+  },
+   attachments: [{ type: String }],
+   statusChange: { type: String, enum: ['pending', 'ongoing', 'completed', null], default: null },
+},{ timestamps: true });
 
 module.exports = mongoose.model('Comment', CommentSchema);

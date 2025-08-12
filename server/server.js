@@ -13,17 +13,24 @@ const path = require('path');
 const http = require('http');
 const socketio = require('socket.io');
 const jwt = require('jsonwebtoken');
-const User = require('./models/User');
 
+const User = require('./models/User');
+const Chat = require('./models/Chat'); // <-- persist chat
 const connectDB = require('./config/db');
 const routes = require('./routes');
 const departmentController = require('./controllers/departmentController');
+
 const app = express();
 const server = http.createServer(app);
+
 const io = socketio(server, {
   cors: {
-    origin: ['http://localhost:5173', 'http://localhost:5050', 'https://frontendtaskmanagement-rose.vercel.app'],
-    methods: ['GET', 'POST'],
+    origin: [
+      'http://localhost:5173',
+      'http://localhost:5050',
+      'https://frontendtaskmanagement-rose.vercel.app'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
   }
 });
@@ -31,11 +38,15 @@ const io = socketio(server, {
 // --- Socket.IO JWT Authentication Middleware ---
 io.use(async (socket, next) => {
   try {
-    const token = socket.handshake.auth.token;
+    // Prefer auth.token, but also allow header fallback
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.replace(/^Bearer\s+/i, '');
+
     if (!token) return next(new Error('Authentication error: token required'));
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId).select('-password');
+    const user = await User.findById(decoded.id).select('-password');
     if (!user) return next(new Error('Authentication error: user not found'));
 
     socket.user = user;
@@ -49,44 +60,133 @@ io.use(async (socket, next) => {
 // --- Unified Socket.IO Connection Handler ---
 io.on('connection', (socket) => {
   const userId = socket.user._id.toString();
-
   console.log(`User connected: ${socket.user.name} (Socket ID: ${socket.id})`);
 
   // Mark user as online
   User.findByIdAndUpdate(userId, { isOnline: true }).exec();
 
-  // Join personal room
+  // Join personal room for direct notifications if needed
   socket.join(userId);
 
-  // Join department room
-  socket.on('joinDepartment', (departmentId) => {
-    socket.join(`department_${departmentId}`);
-  });
-
-  // Join public chat room
+  // --- Room joins ---
   socket.on('joinPublic', () => {
     socket.join('public');
   });
 
-  // Handle public chat
-  socket.on('publicMessage', (msg) => {
-    const payload = {
-      user: socket.user.name,
-      message: msg,
-      timestamp: new Date(),
-    };
-    socket.to('public').emit('newPublicMessage', payload);
+  socket.on('joinDepartment', (departmentId) => {
+    if (!departmentId) return;
+    socket.join(`department_${departmentId}`);
   });
 
-  // Handle department chat
-  socket.on('departmentMessage', ({ departmentId, msg }) => {
-    const payload = {
-      user: socket.user.name,
-      message: msg,
-      timestamp: new Date(),
-      departmentId,
-    };
-    socket.to(`department_${departmentId}`).emit('newDepartmentMessage', payload);
+  socket.on('leaveDepartment', (departmentId) => {
+    if (!departmentId) return;
+    socket.leave(`department_${departmentId}`);
+  });
+
+  // --- NEW API: Persist + broadcast (public) ---
+  // Client emits:  chat:public:send  -> { message }
+  // Server emits:  chat:public:new   -> full chat doc (with populated sender)
+  socket.on('chat:public:send', async ({ message }, ack) => {
+    try {
+      const text = (message || '').trim();
+      if (!text) return typeof ack === 'function' && ack({ ok: false, error: 'Empty message' });
+
+      const chat = await Chat.create({
+        message: text,
+        sender: socket.user._id,
+        isPublic: true,
+        department: null,
+      });
+      await chat.populate('sender', 'name role');
+
+      io.to('public').emit('chat:public:new', chat);
+      if (typeof ack === 'function') ack({ ok: true, data: chat });
+    } catch (e) {
+      console.error('chat:public:send error:', e);
+      if (typeof ack === 'function') ack({ ok: false, error: 'Server error' });
+    }
+  });
+
+  // --- NEW API: Persist + broadcast (department) ---
+  // Client emits:  chat:dept:send -> { departmentId, message }
+  // Server emits:  chat:dept:new  -> full chat doc (with populated sender)
+  socket.on('chat:dept:send', async ({ departmentId, message }, ack) => {
+    try {
+      const text = (message || '').trim();
+      if (!departmentId || !text) {
+        return typeof ack === 'function' && ack({ ok: false, error: 'departmentId & message required' });
+      }
+
+      const chat = await Chat.create({
+        message: text,
+        sender: socket.user._id,
+        isPublic: false,
+        department: departmentId,
+      });
+      await chat.populate('sender', 'name role');
+
+      io.to(`department_${departmentId}`).emit('chat:dept:new', chat);
+      if (typeof ack === 'function') ack({ ok: true, data: chat });
+    } catch (e) {
+      console.error('chat:dept:send error:', e);
+      if (typeof ack === 'function') ack({ ok: false, error: 'Server error' });
+    }
+  });
+
+  // --- BACK-COMPAT: Your older event names (persist + old payload) ---
+  // publicMessage: string or { text }
+  socket.on('publicMessage', async (raw) => {
+    try {
+      const text = (typeof raw === 'string' ? raw : raw?.text || raw?.message || '').trim();
+      if (!text) return;
+
+      const chat = await Chat.create({
+        message: text,
+        sender: socket.user._id,
+        isPublic: true,
+        department: null,
+      });
+      await chat.populate('sender', 'name role');
+
+      // old event payload
+      const legacy = {
+        user: socket.user.name,
+        message: text,
+        timestamp: new Date(),
+      };
+      // emit both: legacy + new (in case new UI listens to modern)
+      io.to('public').emit('newPublicMessage', legacy);
+      io.to('public').emit('chat:public:new', chat);
+    } catch (e) {
+      console.error('publicMessage error:', e);
+    }
+  });
+
+  // departmentMessage: { departmentId, msg }
+  socket.on('departmentMessage', async ({ departmentId, msg }) => {
+    try {
+      const text = (msg || '').trim();
+      if (!departmentId || !text) return;
+
+      const chat = await Chat.create({
+        message: text,
+        sender: socket.user._id,
+        isPublic: false,
+        department: departmentId,
+      });
+      await chat.populate('sender', 'name role');
+
+      const legacy = {
+        user: socket.user.name,
+        message: text,
+        timestamp: new Date(),
+        departmentId,
+      };
+      io.to(`department_${departmentId}`).emit('newDepartmentMessage', legacy);
+      io.to(`department_${departmentId}`).emit('chat:dept:new', chat);
+    } catch (e) {
+      console.error('departmentMessage error:', e);
+    }
   });
 
   // On disconnect
@@ -136,8 +236,9 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-
+// Public depts (as you had)
 app.get('/api/v1/departments/public', departmentController.getAllDepartments);
+
 // --- API routes ---
 app.use('/api', routes);
 
@@ -146,6 +247,7 @@ app.get('/', (req, res) => res.send('Task & Asset Management API is running'));
 
 // --- Set Socket.IO instance on app for use in routes/controllers ---
 app.set('io', io);
+
 // --- 404 Handler ---
 app.use((req, res) => {
   res.status(404).json({ status: 'error', message: 'Route not found' });

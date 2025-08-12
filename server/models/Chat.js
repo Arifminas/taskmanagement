@@ -22,6 +22,9 @@ const ChatSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   }
-});
+},{ timestamps: true } );
+
+ChatSchema.index({ isPublic: 1, createdAt: 1 });
+ChatSchema.index({ department: 1, createdAt: 1 });
 
 module.exports = mongoose.model('Chat', ChatSchema);

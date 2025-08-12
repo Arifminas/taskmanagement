@@ -47,6 +47,11 @@ const UserSchema = new mongoose.Schema({
     country: String,
     ip: String,
   },
+
+  pushSubscriptions: [{
+  endpoint: String,
+  keys: { p256dh: String, auth: String }
+}],
   verificationOTP: String,
   verificationOTPExpires: Date,
   isVerified: { type: Boolean, default: false },

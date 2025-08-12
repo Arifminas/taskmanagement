@@ -1,44 +1,44 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const taskController = require('../../controllers/taskController');
 const auth = require('../../middleware/auth');
 const role = require('../../middleware/role');
 
+// Protect everything in this router
+router.use(auth);
 
-
-
-
-
-router.use(auth);  // protects all routes
-
+/**
+ * Non-parameter routes FIRST
+ */
+router.get('/recommendations', taskController.getRecommendedTasks);
+router.post('/upload-attachments', role('admin', 'coordinator', 'user'), taskController.uploadAttachment);
 router.get('/', taskController.getTasks);
-
 router.post('/', role('admin', 'coordinator'), taskController.createTask);
 
-router.put('/:id',auth, role('admin', 'coordinator', 'user'), taskController.updateTask);
-router.get('/:id', role('admin', 'coordinator'),taskController.getTaskById); 
+/**
+ * Comment & history (extra segment, safe)
+ */
+router.get('/:taskId/comments', taskController.getCommentsByTask);
+router.post('/:taskId/comments', taskController.addComment);
+router.get('/:id/history', taskController.getTaskHistory);
+
+/**
+ * Validate :id is a Mongo ObjectId
+ */
+router.param('id', (req, res, next, id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: 'Invalid task id' });
+  }
+  next();
+});
+
+/**
+ * Parameter routes LAST
+ */
+router.get('/:id', role('admin', 'coordinator'), taskController.getTaskById);
+router.put('/:id', role('admin', 'coordinator', 'user'), taskController.updateTask);
 router.patch('/:id/status', role('admin', 'coordinator', 'user'), taskController.updateTaskStatus);
-
 router.delete('/:id', role('admin'), taskController.deleteTask);
-router.get('/:id/history', auth, taskController.getTaskHistory);
-router.get('/:taskId/comments', auth, taskController.getCommentsByTask);
-router.post('/:taskId/comments', auth, taskController.addComment);
-router.get('/:taskId/comments',auth, taskController.getCommentsByTask);
-router.get('/:taskId/history', taskController.getTaskHistory);
-router.get('/recommendations', taskController.getRecommendedTasks);
-// router.put('/:id', auth, role('admin', 'coordinator'), taskController.updateTask);
-
-// router.use(auth);
-
-// router.get('/', taskController.getTasks);
-
-// router.post('/', role('admin', 'coordinator'), taskController.createTask);
-
-// router.put('/:id', role('admin', 'coordinator', 'user'), taskController.updateTask);
-// router.get('/categories', taskController.getTaskCategories);
-
-// router.delete('/:id', role('admin'), taskController.deleteTask);
- router.post('/upload-attachments', role('admin', 'coordinator', 'user'), taskController.uploadAttachment);
-
 
 module.exports = router;
